@@ -6,7 +6,7 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [FileEntity::class, FileFtsEntity::class],
     version = 1,
-    exportSchema = true
+    exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun fileDao(): FileDao
