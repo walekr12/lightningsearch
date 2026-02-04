@@ -1,6 +1,5 @@
 package com.example.lightningsearch.ui
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.lightningsearch.data.db.FileEntity
@@ -16,7 +15,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-private const val TAG = "SearchViewModel"
+enum class SortMode {
+    NAME_ASC, NAME_DESC,
+    SIZE_ASC, SIZE_DESC,
+    DATE_ASC, DATE_DESC
+}
 
 data class SearchState(
     val query: String = "",
@@ -28,7 +31,8 @@ data class SearchState(
     val indexProgress: Int = 0,
     val indexCurrentPath: String = "",
     val totalIndexed: Int = 0,
-    val hasPermission: Boolean = false
+    val hasPermission: Boolean = false,
+    val sortMode: SortMode = SortMode.NAME_ASC
 )
 
 @HiltViewModel
@@ -43,112 +47,100 @@ class SearchViewModel @Inject constructor(
     private var indexingStarted = false
 
     init {
-        Log.d(TAG, "SearchViewModel init")
+        // Load existing count from database
         viewModelScope.launch {
-            try {
-                fileRepository.getFileCountFlow().collect { count ->
-                    Log.d(TAG, "File count updated: $count")
-                    _state.value = _state.value.copy(totalIndexed = count)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error collecting file count", e)
-            }
+            val count = fileRepository.getFileCount()
+            _state.value = _state.value.copy(totalIndexed = count)
         }
     }
 
     fun setPermissionGranted(granted: Boolean) {
-        Log.d(TAG, "setPermissionGranted: $granted")
         _state.value = _state.value.copy(hasPermission = granted)
+    }
+
+    fun setSortMode(mode: SortMode) {
+        _state.value = _state.value.copy(sortMode = mode)
+        if (_state.value.results.isNotEmpty()) {
+            _state.value = _state.value.copy(results = sortResults(_state.value.results, mode))
+        }
+    }
+
+    private fun sortResults(results: List<FileEntity>, mode: SortMode): List<FileEntity> {
+        return when (mode) {
+            SortMode.NAME_ASC -> results.sortedWith(compareBy({ !it.is_directory }, { it.name_lower }))
+            SortMode.NAME_DESC -> results.sortedWith(compareBy<FileEntity> { !it.is_directory }.thenByDescending { it.name_lower })
+            SortMode.SIZE_ASC -> results.sortedWith(compareBy({ !it.is_directory }, { it.size }))
+            SortMode.SIZE_DESC -> results.sortedWith(compareBy<FileEntity> { !it.is_directory }.thenByDescending { it.size })
+            SortMode.DATE_ASC -> results.sortedWith(compareBy({ !it.is_directory }, { it.modified_time }))
+            SortMode.DATE_DESC -> results.sortedWith(compareBy<FileEntity> { !it.is_directory }.thenByDescending { it.modified_time })
+        }
     }
 
     fun onQueryChange(query: String) {
         _state.value = _state.value.copy(query = query)
-
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            delay(150) // Debounce
+            delay(150)
             performSearch(query)
         }
     }
 
     private suspend fun performSearch(query: String) {
         if (query.isBlank()) {
-            _state.value = _state.value.copy(
-                results = emptyList(),
-                resultCount = 0,
-                searchTimeMs = 0
-            )
+            _state.value = _state.value.copy(results = emptyList(), resultCount = 0, searchTimeMs = 0)
             return
         }
 
         _state.value = _state.value.copy(isSearching = true)
+        val startTime = System.currentTimeMillis()
+        val results = fileRepository.search(query)
+        val sorted = sortResults(results, _state.value.sortMode)
+        val elapsed = System.currentTimeMillis() - startTime
 
-        try {
-            val startTime = System.currentTimeMillis()
-            val results = fileRepository.search(query)
-            val elapsed = System.currentTimeMillis() - startTime
+        _state.value = _state.value.copy(
+            results = sorted,
+            resultCount = sorted.size,
+            searchTimeMs = elapsed,
+            isSearching = false
+        )
+    }
 
-            _state.value = _state.value.copy(
-                results = results,
-                resultCount = results.size,
-                searchTimeMs = elapsed,
-                isSearching = false
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error searching", e)
-            _state.value = _state.value.copy(isSearching = false)
+    fun checkAndStartIndexing(getStoragePaths: () -> List<String>) {
+        if (indexingStarted) return
+
+        viewModelScope.launch {
+            val existingCount = fileRepository.getFileCount()
+            if (existingCount > 0) {
+                _state.value = _state.value.copy(totalIndexed = existingCount)
+                return@launch
+            }
+            startIndexing(getStoragePaths())
         }
     }
 
     fun startIndexing(rootPaths: List<String>) {
-        Log.d(TAG, "startIndexing called, indexingStarted=$indexingStarted")
-        if (indexingStarted) {
-            Log.d(TAG, "Already indexing, returning")
-            return
-        }
+        if (indexingStarted) return
         indexingStarted = true
 
         viewModelScope.launch(Dispatchers.IO) {
-            Log.d(TAG, "Indexing coroutine started")
-
             withContext(Dispatchers.Main) {
-                _state.value = _state.value.copy(
-                    isIndexing = true,
-                    indexProgress = 0,
-                    indexCurrentPath = ""
-                )
+                _state.value = _state.value.copy(isIndexing = true, indexProgress = 0, indexCurrentPath = "")
             }
 
             try {
-                Log.d(TAG, "Calling fileRepository.indexFiles")
                 val total = fileRepository.indexFiles(rootPaths) { indexed, current ->
-                    // Update on main thread - but don't launch new coroutine for each update
-                    if (indexed % 1000 == 0) {
-                        Log.d(TAG, "Indexed: $indexed, current: $current")
-                    }
-                    _state.value = _state.value.copy(
-                        indexProgress = indexed,
-                        indexCurrentPath = current
-                    )
+                    _state.value = _state.value.copy(indexProgress = indexed, indexCurrentPath = current)
                 }
 
-                Log.d(TAG, "Indexing completed, total: $total")
                 withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(
-                        isIndexing = false,
-                        totalIndexed = total
-                    )
+                    _state.value = _state.value.copy(isIndexing = false, totalIndexed = total)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error during indexing", e)
                 withContext(Dispatchers.Main) {
-                    _state.value = _state.value.copy(
-                        isIndexing = false
-                    )
+                    _state.value = _state.value.copy(isIndexing = false)
                 }
             } finally {
                 indexingStarted = false
-                Log.d(TAG, "Indexing finally block, indexingStarted reset")
             }
         }
     }

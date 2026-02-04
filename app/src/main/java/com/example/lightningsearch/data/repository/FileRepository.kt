@@ -1,10 +1,8 @@
 package com.example.lightningsearch.data.repository
 
-import android.util.Log
 import com.example.lightningsearch.data.db.FileDao
 import com.example.lightningsearch.data.db.FileEntity
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -13,144 +11,80 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 
-private const val TAG = "FileRepository"
-
 @Singleton
 class FileRepository @Inject constructor(
     private val fileDao: FileDao
 ) {
-    fun getFileCountFlow(): Flow<Int> = fileDao.getFileCountFlow()
-
-    suspend fun getFileCount(): Int = fileDao.getFileCount()
+    suspend fun getFileCount(): Int = withContext(Dispatchers.IO) {
+        try { fileDao.getFileCount() } catch (e: Exception) { 0 }
+    }
 
     suspend fun search(query: String): List<FileEntity> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) {
-            return@withContext emptyList()
-        }
-        val normalizedQuery = query.trim().lowercase()
-        try {
-            fileDao.searchLike(normalizedQuery)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error searching", e)
-            emptyList()
-        }
+        if (query.isBlank()) return@withContext emptyList()
+        try { fileDao.searchLike(query.trim().lowercase()) } catch (e: Exception) { emptyList() }
     }
 
     suspend fun indexFiles(
         rootPaths: List<String>,
         onProgress: (indexed: Int, current: String) -> Unit
     ): Int = withContext(Dispatchers.IO) {
-        Log.d(TAG, "indexFiles started with paths: $rootPaths")
-
-        try {
-            fileDao.deleteAll()
-            Log.d(TAG, "Deleted all existing files")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error deleting files", e)
-        }
+        try { fileDao.deleteAll() } catch (e: Exception) { }
 
         var totalIndexed = 0
         val batch = mutableListOf<FileEntity>()
         val batchSize = 500
         var lastProgressUpdate = 0
-
-        // Use iterative BFS instead of recursion to avoid StackOverflow
         val queue = LinkedList<File>()
 
-        for (rootPath in rootPaths) {
+        rootPaths.forEach { path ->
             try {
-                val rootFile = File(rootPath)
-                Log.d(TAG, "Root path: $rootPath, exists: ${rootFile.exists()}, canRead: ${rootFile.canRead()}")
-                if (rootFile.exists() && rootFile.canRead()) {
-                    queue.add(rootFile)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error adding root path: $rootPath", e)
-            }
+                val f = File(path)
+                if (f.exists() && f.canRead()) queue.add(f)
+            } catch (e: Exception) { }
         }
 
-        Log.d(TAG, "Starting BFS traversal, queue size: ${queue.size}")
-
         while (queue.isNotEmpty() && coroutineContext.isActive) {
-            val currentDir = queue.poll() ?: continue
-
+            val dir = queue.poll() ?: continue
             try {
-                val files = currentDir.listFiles()
-                if (files == null) {
-                    Log.w(TAG, "listFiles returned null for: ${currentDir.absolutePath}")
-                    continue
-                }
-
+                val files = dir.listFiles() ?: continue
                 for (file in files) {
-                    if (!coroutineContext.isActive) {
-                        Log.d(TAG, "Coroutine cancelled, breaking")
-                        break
-                    }
-
+                    if (!coroutineContext.isActive) break
                     try {
-                        // Skip hidden files and system directories
-                        val fileName = file.name
-                        if (fileName.startsWith(".")) continue
-                        if (fileName == "Android" && file.isDirectory) continue
-                        if (fileName == "data" && file.isDirectory && file.parent == "/") continue
+                        val name = file.name
+                        if (name.startsWith(".")) continue  // Only skip hidden files
 
                         val isDir = file.isDirectory
-                        val entity = FileEntity(
+                        batch.add(FileEntity(
                             path = file.absolutePath,
-                            name = fileName,
-                            name_lower = fileName.lowercase(),
+                            name = name,
+                            name_lower = name.lowercase(),
                             extension = if (!isDir) file.extension.lowercase().ifEmpty { null } else null,
                             size = if (!isDir) file.length() else 0L,
                             modified_time = file.lastModified(),
                             is_directory = isDir,
                             parent_path = file.parent
-                        )
-                        batch.add(entity)
+                        ))
                         totalIndexed++
 
                         if (batch.size >= batchSize) {
-                            try {
-                                fileDao.insertAll(batch.toList())
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error inserting batch", e)
-                            }
+                            try { fileDao.insertAll(batch.toList()) } catch (e: Exception) { }
                             batch.clear()
-
-                            // Throttle progress updates
                             if (totalIndexed - lastProgressUpdate >= 1000) {
                                 lastProgressUpdate = totalIndexed
-                                try {
-                                    onProgress(totalIndexed, currentDir.absolutePath)
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Error in onProgress callback", e)
-                                }
+                                onProgress(totalIndexed, dir.absolutePath)
                             }
                         }
 
-                        // Add directory to queue for BFS traversal
-                        if (isDir && file.canRead()) {
-                            queue.add(file)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error processing file: ${file.absolutePath}", e)
-                    }
+                        if (isDir && file.canRead()) queue.add(file)
+                    } catch (e: Exception) { }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error listing directory: ${currentDir.absolutePath}", e)
-            }
+            } catch (e: Exception) { }
         }
 
-        // Insert remaining files
         if (batch.isNotEmpty()) {
-            try {
-                fileDao.insertAll(batch)
-                Log.d(TAG, "Inserted final batch of ${batch.size} files")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error inserting final batch", e)
-            }
+            try { fileDao.insertAll(batch) } catch (e: Exception) { }
         }
 
-        Log.d(TAG, "indexFiles completed, total: $totalIndexed")
         totalIndexed
     }
 }
