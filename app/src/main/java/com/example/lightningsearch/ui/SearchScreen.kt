@@ -213,7 +213,7 @@ private fun FileItemWithMenu(
             onLongClick = onLongClick
         )
     ) {
-        FileItem(file = file, onClick = {})
+        FileItem(file = file)
     }
 }
 
