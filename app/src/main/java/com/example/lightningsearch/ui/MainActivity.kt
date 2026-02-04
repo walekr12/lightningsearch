@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -21,6 +22,8 @@ import androidx.lifecycle.ViewModelProvider
 import com.example.lightningsearch.ui.theme.LightningSearchTheme
 import dagger.hilt.android.AndroidEntryPoint
 
+private const val TAG = "LightningSearch"
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
@@ -29,6 +32,7 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
+        Log.d(TAG, "Permission result: $permissions")
         val allGranted = permissions.values.all { it }
         if (allGranted) {
             onPermissionGranted()
@@ -38,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private val manageStorageLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
+        Log.d(TAG, "Manage storage result")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (Environment.isExternalStorageManager()) {
                 onPermissionGranted()
@@ -47,30 +52,49 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        Log.d(TAG, "onCreate started")
 
-        viewModel = ViewModelProvider(this)[SearchViewModel::class.java]
+        try {
+            enableEdgeToEdge()
+            Log.d(TAG, "enableEdgeToEdge done")
 
-        setContent {
-            LightningSearchTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    SearchScreen(
-                        onRequestPermission = { requestStoragePermission() },
-                        viewModel = viewModel
-                    )
+            viewModel = ViewModelProvider(this)[SearchViewModel::class.java]
+            Log.d(TAG, "ViewModel created")
+
+            setContent {
+                LightningSearchTheme {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        SearchScreen(
+                            onRequestPermission = { requestStoragePermission() },
+                            viewModel = viewModel
+                        )
+                    }
                 }
             }
-        }
+            Log.d(TAG, "setContent done")
 
-        checkAndRequestPermission()
+            checkAndRequestPermission()
+            Log.d(TAG, "onCreate completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onCreate", e)
+            throw e
+        }
     }
 
     private fun checkAndRequestPermission() {
-        if (hasStoragePermission()) {
-            onPermissionGranted()
+        Log.d(TAG, "checkAndRequestPermission")
+        try {
+            if (hasStoragePermission()) {
+                Log.d(TAG, "Has permission, calling onPermissionGranted")
+                onPermissionGranted()
+            } else {
+                Log.d(TAG, "No permission yet")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in checkAndRequestPermission", e)
         }
     }
 
@@ -86,6 +110,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestStoragePermission() {
+        Log.d(TAG, "requestStoragePermission")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
@@ -93,6 +118,7 @@ class MainActivity : ComponentActivity() {
                 }
                 manageStorageLauncher.launch(intent)
             } catch (e: Exception) {
+                Log.e(TAG, "Error launching manage storage", e)
                 val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
                 manageStorageLauncher.launch(intent)
             }
@@ -107,30 +133,52 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onPermissionGranted() {
-        viewModel.setPermissionGranted(true)
+        Log.d(TAG, "onPermissionGranted called")
+        try {
+            viewModel.setPermissionGranted(true)
+            Log.d(TAG, "setPermissionGranted(true) done")
 
-        // Only start indexing if not already indexed
-        if (viewModel.state.value.totalIndexed == 0 && !viewModel.state.value.isIndexing) {
-            // Get all storage paths
-            val storagePaths = mutableListOf<String>()
+            // Only start indexing if not already indexed
+            val state = viewModel.state.value
+            Log.d(TAG, "Current state: totalIndexed=${state.totalIndexed}, isIndexing=${state.isIndexing}")
 
-            // Internal storage
-            Environment.getExternalStorageDirectory()?.absolutePath?.let {
-                storagePaths.add(it)
-            }
+            if (state.totalIndexed == 0 && !state.isIndexing) {
+                // Get all storage paths
+                val storagePaths = mutableListOf<String>()
 
-            // External SD cards
-            getExternalFilesDirs(null).forEach { file ->
-                file?.absolutePath?.let { path ->
-                    // Extract root path from app-specific path
-                    val rootPath = path.substringBefore("/Android/")
-                    if (rootPath !in storagePaths) {
-                        storagePaths.add(rootPath)
+                // Internal storage
+                try {
+                    Environment.getExternalStorageDirectory()?.absolutePath?.let {
+                        Log.d(TAG, "Adding storage path: $it")
+                        storagePaths.add(it)
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error getting external storage", e)
                 }
-            }
 
-            viewModel.startIndexing(storagePaths)
+                // External SD cards
+                try {
+                    getExternalFilesDirs(null).forEach { file ->
+                        file?.absolutePath?.let { path ->
+                            // Extract root path from app-specific path
+                            val rootPath = path.substringBefore("/Android/")
+                            if (rootPath !in storagePaths) {
+                                Log.d(TAG, "Adding SD card path: $rootPath")
+                                storagePaths.add(rootPath)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error getting external file dirs", e)
+                }
+
+                Log.d(TAG, "Starting indexing with paths: $storagePaths")
+                viewModel.startIndexing(storagePaths)
+            } else {
+                Log.d(TAG, "Skipping indexing - already indexed or in progress")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onPermissionGranted", e)
         }
     }
 }

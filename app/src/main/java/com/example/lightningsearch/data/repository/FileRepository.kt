@@ -1,5 +1,6 @@
 package com.example.lightningsearch.data.repository
 
+import android.util.Log
 import com.example.lightningsearch.data.db.FileDao
 import com.example.lightningsearch.data.db.FileEntity
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +12,8 @@ import java.util.LinkedList
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
+
+private const val TAG = "FileRepository"
 
 @Singleton
 class FileRepository @Inject constructor(
@@ -28,6 +31,7 @@ class FileRepository @Inject constructor(
         try {
             fileDao.searchLike(normalizedQuery)
         } catch (e: Exception) {
+            Log.e(TAG, "Error searching", e)
             emptyList()
         }
     }
@@ -36,10 +40,13 @@ class FileRepository @Inject constructor(
         rootPaths: List<String>,
         onProgress: (indexed: Int, current: String) -> Unit
     ): Int = withContext(Dispatchers.IO) {
+        Log.d(TAG, "indexFiles started with paths: $rootPaths")
+
         try {
             fileDao.deleteAll()
+            Log.d(TAG, "Deleted all existing files")
         } catch (e: Exception) {
-            // Ignore
+            Log.e(TAG, "Error deleting files", e)
         }
 
         var totalIndexed = 0
@@ -53,22 +60,32 @@ class FileRepository @Inject constructor(
         for (rootPath in rootPaths) {
             try {
                 val rootFile = File(rootPath)
+                Log.d(TAG, "Root path: $rootPath, exists: ${rootFile.exists()}, canRead: ${rootFile.canRead()}")
                 if (rootFile.exists() && rootFile.canRead()) {
                     queue.add(rootFile)
                 }
             } catch (e: Exception) {
-                // Skip invalid paths
+                Log.e(TAG, "Error adding root path: $rootPath", e)
             }
         }
+
+        Log.d(TAG, "Starting BFS traversal, queue size: ${queue.size}")
 
         while (queue.isNotEmpty() && coroutineContext.isActive) {
             val currentDir = queue.poll() ?: continue
 
             try {
-                val files = currentDir.listFiles() ?: continue
+                val files = currentDir.listFiles()
+                if (files == null) {
+                    Log.w(TAG, "listFiles returned null for: ${currentDir.absolutePath}")
+                    continue
+                }
 
                 for (file in files) {
-                    if (!coroutineContext.isActive) break
+                    if (!coroutineContext.isActive) {
+                        Log.d(TAG, "Coroutine cancelled, breaking")
+                        break
+                    }
 
                     try {
                         // Skip hidden files and system directories
@@ -95,14 +112,18 @@ class FileRepository @Inject constructor(
                             try {
                                 fileDao.insertAll(batch.toList())
                             } catch (e: Exception) {
-                                // Ignore insert errors
+                                Log.e(TAG, "Error inserting batch", e)
                             }
                             batch.clear()
 
                             // Throttle progress updates
                             if (totalIndexed - lastProgressUpdate >= 1000) {
                                 lastProgressUpdate = totalIndexed
-                                onProgress(totalIndexed, currentDir.absolutePath)
+                                try {
+                                    onProgress(totalIndexed, currentDir.absolutePath)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error in onProgress callback", e)
+                                }
                             }
                         }
 
@@ -111,11 +132,11 @@ class FileRepository @Inject constructor(
                             queue.add(file)
                         }
                     } catch (e: Exception) {
-                        // Skip files that can't be accessed
+                        Log.e(TAG, "Error processing file: ${file.absolutePath}", e)
                     }
                 }
             } catch (e: Exception) {
-                // Skip directories that can't be listed
+                Log.e(TAG, "Error listing directory: ${currentDir.absolutePath}", e)
             }
         }
 
@@ -123,11 +144,13 @@ class FileRepository @Inject constructor(
         if (batch.isNotEmpty()) {
             try {
                 fileDao.insertAll(batch)
+                Log.d(TAG, "Inserted final batch of ${batch.size} files")
             } catch (e: Exception) {
-                // Ignore
+                Log.e(TAG, "Error inserting final batch", e)
             }
         }
 
+        Log.d(TAG, "indexFiles completed, total: $totalIndexed")
         totalIndexed
     }
 }
