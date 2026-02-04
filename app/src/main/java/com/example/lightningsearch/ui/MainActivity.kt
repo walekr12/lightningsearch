@@ -109,25 +109,28 @@ class MainActivity : ComponentActivity() {
     private fun onPermissionGranted() {
         viewModel.setPermissionGranted(true)
 
-        // Get all storage paths
-        val storagePaths = mutableListOf<String>()
+        // Only start indexing if not already indexed
+        if (viewModel.state.value.totalIndexed == 0 && !viewModel.state.value.isIndexing) {
+            // Get all storage paths
+            val storagePaths = mutableListOf<String>()
 
-        // Internal storage
-        Environment.getExternalStorageDirectory()?.absolutePath?.let {
-            storagePaths.add(it)
-        }
+            // Internal storage
+            Environment.getExternalStorageDirectory()?.absolutePath?.let {
+                storagePaths.add(it)
+            }
 
-        // External SD cards
-        getExternalFilesDirs(null).forEach { file ->
-            file?.absolutePath?.let { path ->
-                // Extract root path from app-specific path
-                val rootPath = path.substringBefore("/Android/")
-                if (rootPath !in storagePaths) {
-                    storagePaths.add(rootPath)
+            // External SD cards
+            getExternalFilesDirs(null).forEach { file ->
+                file?.absolutePath?.let { path ->
+                    // Extract root path from app-specific path
+                    val rootPath = path.substringBefore("/Android/")
+                    if (rootPath !in storagePaths) {
+                        storagePaths.add(rootPath)
+                    }
                 }
             }
-        }
 
-        viewModel.startIndexing(storagePaths)
+            viewModel.startIndexing(storagePaths)
+        }
     }
 }

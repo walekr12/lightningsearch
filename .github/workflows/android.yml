@@ -43,3 +43,28 @@ jobs:
       with:
         name: app-release-unsigned
         path: app/build/outputs/apk/release/app-release-unsigned.apk
+
+    - name: Get version
+      id: version
+      run: echo "version=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.version.outputs.version }}
+        name: Release v${{ steps.version.outputs.version }}
+        body: |
+          ## 闪电搜索 Lightning Search
+
+          自动构建版本
+
+          ### 下载
+          - `app-debug.apk` - 调试版本
+          - `app-release-unsigned.apk` - 未签名发布版本
+        files: |
+          app/build/outputs/apk/debug/app-debug.apk
+          app/build/outputs/apk/release/app-release-unsigned.apk
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

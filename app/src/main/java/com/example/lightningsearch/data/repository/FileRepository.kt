@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.LinkedList
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +23,6 @@ class FileRepository @Inject constructor(
             return@withContext emptyList()
         }
         val normalizedQuery = query.trim().lowercase()
-        // Use LIKE search for better Chinese support
         fileDao.searchLike(normalizedQuery)
     }
 
@@ -36,13 +36,57 @@ class FileRepository @Inject constructor(
         val batch = mutableListOf<FileEntity>()
         val batchSize = 1000
 
+        // Use iterative BFS instead of recursion to avoid StackOverflow
+        val queue = LinkedList<File>()
+
         for (rootPath in rootPaths) {
             val rootFile = File(rootPath)
-            if (!rootFile.exists() || !rootFile.canRead()) continue
+            if (rootFile.exists() && rootFile.canRead()) {
+                queue.add(rootFile)
+            }
+        }
 
-            indexDirectory(rootFile, batch, batchSize) { indexed, current ->
-                totalIndexed = indexed
-                onProgress(indexed, current)
+        while (queue.isNotEmpty()) {
+            val currentDir = queue.poll() ?: continue
+
+            try {
+                val files = currentDir.listFiles() ?: continue
+
+                for (file in files) {
+                    try {
+                        // Skip hidden files and system directories
+                        if (file.name.startsWith(".")) continue
+                        if (file.name == "Android" && file.isDirectory) continue
+
+                        val entity = FileEntity(
+                            path = file.absolutePath,
+                            name = file.name,
+                            name_lower = file.name.lowercase(),
+                            extension = if (file.isFile) file.extension.lowercase().ifEmpty { null } else null,
+                            size = if (file.isFile) file.length() else 0L,
+                            modified_time = file.lastModified(),
+                            is_directory = file.isDirectory,
+                            parent_path = file.parent
+                        )
+                        batch.add(entity)
+                        totalIndexed++
+
+                        if (batch.size >= batchSize) {
+                            fileDao.insertAll(batch.toList())
+                            onProgress(totalIndexed, file.absolutePath)
+                            batch.clear()
+                        }
+
+                        // Add directory to queue for BFS traversal
+                        if (file.isDirectory && file.canRead()) {
+                            queue.add(file)
+                        }
+                    } catch (e: Exception) {
+                        // Skip files that can't be accessed
+                    }
+                }
+            } catch (e: Exception) {
+                // Skip directories that can't be listed
             }
         }
 
@@ -52,46 +96,5 @@ class FileRepository @Inject constructor(
         }
 
         totalIndexed
-    }
-
-    private suspend fun indexDirectory(
-        directory: File,
-        batch: MutableList<FileEntity>,
-        batchSize: Int,
-        onProgress: (indexed: Int, current: String) -> Unit
-    ): Int {
-        var count = 0
-        val files = directory.listFiles() ?: return 0
-
-        for (file in files) {
-            try {
-                val entity = FileEntity(
-                    path = file.absolutePath,
-                    name = file.name,
-                    name_lower = file.name.lowercase(),
-                    extension = if (file.isFile) file.extension.lowercase().ifEmpty { null } else null,
-                    size = if (file.isFile) file.length() else 0L,
-                    modified_time = file.lastModified(),
-                    is_directory = file.isDirectory,
-                    parent_path = file.parent
-                )
-                batch.add(entity)
-                count++
-
-                if (batch.size >= batchSize) {
-                    fileDao.insertAll(batch.toList())
-                    onProgress(count, file.absolutePath)
-                    batch.clear()
-                }
-
-                if (file.isDirectory && file.canRead()) {
-                    count += indexDirectory(file, batch, batchSize, onProgress)
-                }
-            } catch (e: Exception) {
-                // Skip files that can't be accessed
-            }
-        }
-
-        return count
     }
 }
