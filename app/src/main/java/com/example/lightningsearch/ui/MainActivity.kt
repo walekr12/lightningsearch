@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModelProvider
 import com.example.lightningsearch.ui.theme.LightningSearchTheme
+import android.widget.Toast
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -115,12 +116,11 @@ class MainActivity : ComponentActivity() {
 
     private fun requestSafAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Try to open Android/data directly
-            val androidDataUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AAndroid%2Fdata")
-            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                putExtra(DocumentsContract.EXTRA_INITIAL_URI, androidDataUri)
-            }
-            safLauncher.launch(androidDataUri)
+            // Open to Android folder, user needs to manually navigate to data folder
+            // Direct access to Android/data is blocked by Google since Android 11
+            val androidUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AAndroid")
+            Toast.makeText(this, "请点击进入 data 文件夹，然后点击\"使用此文件夹\"", Toast.LENGTH_LONG).show()
+            safLauncher.launch(androidUri)
         }
     }
 
