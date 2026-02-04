@@ -3,24 +3,33 @@ package com.example.lightningsearch.ui
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -152,13 +161,46 @@ private fun PermissionRequest(onRequestPermission: () -> Unit) {
 }
 
 @Composable
+private fun SimpleLoadingIndicator(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "loading")
+    val angle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing)
+        ),
+        label = "rotation"
+    )
+
+    Canvas(modifier = modifier.size(48.dp)) {
+        drawArc(
+            color = color.copy(alpha = 0.3f),
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+        )
+        drawArc(
+            color = color,
+            startAngle = angle,
+            sweepAngle = 90f,
+            useCenter = false,
+            style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+        )
+    }
+}
+
+@Composable
 private fun IndexingProgress(progress: Int, currentPath: String) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
+            SimpleLoadingIndicator()
             Text(
                 text = stringResource(R.string.indexing),
                 style = MaterialTheme.typography.bodyLarge,
