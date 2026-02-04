@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">闪电搜索</string>
+    <string name="search_hint">搜索文件...</string>
+    <string name="no_results">未找到匹配的文件</string>
+    <string name="indexing">正在索引文件...</string>
+    <string name="permission_required">需要存储权限才能搜索文件</string>
+    <string name="grant_permission">授予权限</string>
+</resources>
