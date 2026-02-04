@@ -5,12 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.lightningsearch.data.db.FileEntity
 import com.example.lightningsearch.data.repository.FileRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class SearchState(
@@ -35,6 +37,7 @@ class SearchViewModel @Inject constructor(
     val state: StateFlow<SearchState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    private var indexingStarted = false
 
     init {
         viewModelScope.launch {
@@ -83,6 +86,9 @@ class SearchViewModel @Inject constructor(
     }
 
     fun startIndexing(rootPaths: List<String>) {
+        if (indexingStarted) return
+        indexingStarted = true
+
         viewModelScope.launch {
             _state.value = _state.value.copy(
                 isIndexing = true,
@@ -90,17 +96,32 @@ class SearchViewModel @Inject constructor(
                 indexCurrentPath = ""
             )
 
-            val total = fileRepository.indexFiles(rootPaths) { indexed, current ->
-                _state.value = _state.value.copy(
-                    indexProgress = indexed,
-                    indexCurrentPath = current
-                )
-            }
+            try {
+                val total = fileRepository.indexFiles(rootPaths) { indexed, current ->
+                    // Update on main thread
+                    viewModelScope.launch(Dispatchers.Main.immediate) {
+                        _state.value = _state.value.copy(
+                            indexProgress = indexed,
+                            indexCurrentPath = current
+                        )
+                    }
+                }
 
-            _state.value = _state.value.copy(
-                isIndexing = false,
-                totalIndexed = total
-            )
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(
+                        isIndexing = false,
+                        totalIndexed = total
+                    )
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(
+                        isIndexing = false
+                    )
+                }
+            } finally {
+                indexingStarted = false
+            }
         }
     }
 }
