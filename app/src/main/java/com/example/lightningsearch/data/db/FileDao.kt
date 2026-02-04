@@ -15,6 +15,9 @@ interface FileDao {
     @Query("DELETE FROM files")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM files WHERE path = :path")
+    suspend fun deleteByPath(path: String)
+
     @Query("SELECT COUNT(*) FROM files")
     suspend fun getFileCount(): Int
 

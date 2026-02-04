@@ -1,5 +1,7 @@
 package com.example.lightningsearch.ui
 
+import android.content.ContentResolver
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.lightningsearch.data.db.FileEntity
@@ -32,7 +34,8 @@ data class SearchState(
     val indexCurrentPath: String = "",
     val totalIndexed: Int = 0,
     val hasPermission: Boolean = false,
-    val sortMode: SortMode = SortMode.NAME_ASC
+    val sortMode: SortMode = SortMode.NAME_ASC,
+    val hasSafAccess: Boolean = false
 )
 
 @HiltViewModel
@@ -47,7 +50,6 @@ class SearchViewModel @Inject constructor(
     private var indexingStarted = false
 
     init {
-        // Load existing count from database
         viewModelScope.launch {
             val count = fileRepository.getFileCount()
             _state.value = _state.value.copy(totalIndexed = count)
@@ -142,6 +144,48 @@ class SearchViewModel @Inject constructor(
             } finally {
                 indexingStarted = false
             }
+        }
+    }
+
+    fun indexSafDirectory(contentResolver: ContentResolver, documentFile: DocumentFile) {
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(isIndexing = true, indexCurrentPath = "正在索引 Android/data...")
+            }
+
+            try {
+                val count = fileRepository.indexSafDirectory(contentResolver, documentFile) { indexed, current ->
+                    _state.value = _state.value.copy(indexProgress = indexed, indexCurrentPath = current)
+                }
+
+                val newTotal = _state.value.totalIndexed + count
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(
+                        isIndexing = false,
+                        totalIndexed = newTotal,
+                        hasSafAccess = true
+                    )
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _state.value = _state.value.copy(isIndexing = false)
+                }
+            }
+        }
+    }
+
+    fun deleteFile(path: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val success = fileRepository.deleteFile(path)
+            if (success) {
+                // Remove from current results
+                val newResults = _state.value.results.filter { it.path != path }
+                _state.value = _state.value.copy(
+                    results = newResults,
+                    resultCount = newResults.size
+                )
+            }
+            onResult(success)
         }
     }
 }

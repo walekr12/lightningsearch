@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModelProvider
 import com.example.lightningsearch.ui.theme.LightningSearchTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -42,6 +44,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // SAF for Android/data access
+    private val safLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+            // Persist permission
+            contentResolver.takePersistableUriPermission(
+                it,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            // Index the SAF directory
+            indexSafDirectory(it)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -56,6 +73,8 @@ class MainActivity : ComponentActivity() {
                 ) {
                     SearchScreen(
                         onRequestPermission = { requestStoragePermission() },
+                        onRequestSafPermission = { requestSafAccess() },
+                        onDeleteFile = { path -> deleteFile(path) },
                         viewModel = viewModel
                     )
                 }
@@ -91,6 +110,41 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.READ_EXTERNAL_STORAGE,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
             ))
+        }
+    }
+
+    private fun requestSafAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Try to open Android/data directly
+            val androidDataUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AAndroid%2Fdata")
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, androidDataUri)
+            }
+            safLauncher.launch(androidDataUri)
+        }
+    }
+
+    private fun indexSafDirectory(uri: Uri) {
+        val documentFile = DocumentFile.fromTreeUri(this, uri)
+        documentFile?.let {
+            viewModel.indexSafDirectory(contentResolver, it)
+        }
+    }
+
+    private fun deleteFile(path: String): Boolean {
+        return try {
+            val file = java.io.File(path)
+            if (file.exists()) {
+                if (file.isDirectory) {
+                    file.deleteRecursively()
+                } else {
+                    file.delete()
+                }
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            false
         }
     }
 
