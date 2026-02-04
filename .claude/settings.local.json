@@ -8,7 +8,8 @@
       "Bash(gh repo create:*)",
       "Bash(git push)",
       "Bash(gh secret set:*)",
-      "Bash(gh run list:*)"
+      "Bash(gh run list:*)",
+      "Bash(python:*)"
     ]
   }
 }

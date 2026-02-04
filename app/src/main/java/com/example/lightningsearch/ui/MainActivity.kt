@@ -116,11 +116,23 @@ class MainActivity : ComponentActivity() {
 
     private fun requestSafAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Open to Android folder, user needs to manually navigate to data folder
-            // Direct access to Android/data is blocked by Google since Android 11
-            val androidUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AAndroid")
-            Toast.makeText(this, "请点击进入 data 文件夹，然后点击\"使用此文件夹\"", Toast.LENGTH_LONG).show()
-            safLauncher.launch(androidUri)
+            // Use tree URI format which allows access to Android/data on most devices
+            val androidDataUri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AAndroid%2Fdata")
+
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, androidDataUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }
+
+            Toast.makeText(this, "请直接点击底部\"使用此文件夹\"按钮", Toast.LENGTH_LONG).show()
+
+            try {
+                safLauncher.launch(androidDataUri)
+            } catch (e: Exception) {
+                // Fallback: open storage root
+                safLauncher.launch(null)
+                Toast.makeText(this, "请手动导航到 Android/data 文件夹", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
