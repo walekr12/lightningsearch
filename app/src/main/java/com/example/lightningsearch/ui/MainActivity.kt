@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
                     SearchScreen(
                         onRequestPermission = { requestStoragePermission() },
                         onRequestSafPermission = { requestSafAccess() },
-                        onDeleteFile = { path -> deleteFile(path) },
+                        onDeleteFile = { path -> performDeleteFile(path) },
                         viewModel = viewModel
                     )
                 }
@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun deleteFile(path: String): Boolean {
+    private fun performDeleteFile(path: String): Boolean {
         return try {
             val file = java.io.File(path)
             if (file.exists()) {

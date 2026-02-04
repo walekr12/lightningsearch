@@ -126,17 +126,18 @@ class FileRepository @Inject constructor(
                         if (name.startsWith(".")) continue
 
                         val isDir = file.isDirectory
-                        val uri = file.uri.toString()
+                        val fileUri = file.uri.toString()
+                        val ext = if (!isDir) name.substringAfterLast('.', "") else ""
 
                         batch.add(FileEntity(
-                            path = uri,
+                            path = fileUri,
                             name = name,
                             name_lower = name.lowercase(),
-                            extension = if (!isDir) name.substringAfterLast('.', "").lowercase().ifEmpty { null } else null,
+                            extension = if (!isDir && ext.isNotEmpty()) ext.lowercase() else null,
                             size = if (!isDir) file.length() else 0L,
                             modified_time = file.lastModified(),
                             is_directory = isDir,
-                            parent_path = dir.uri.toString()
+                            parent_path = dir.uri?.toString()
                         ))
                         totalIndexed++
 

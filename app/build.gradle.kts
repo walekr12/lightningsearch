@@ -90,6 +90,9 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     ksp(libs.hilt.android.compiler)
 
+    // DocumentFile for SAF
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
